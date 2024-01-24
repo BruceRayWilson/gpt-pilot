@@ -55,7 +55,7 @@ class AgentConvo:
 
         # TODO: move this if block (and the other below) to Developer agent - https://github.com/Pythagora-io/gpt-pilot/issues/91#issuecomment-1751964079
         # check if we already have the LLM response saved
-        if self.agent.__class__.__name__ == 'Developer':
+        if hasattr(self.agent, 'save_dev_steps') and self.agent.save_dev_steps:
             self.agent.project.llm_req_num += 1
         development_step = get_saved_development_step(self.agent.project)
         if development_step is not None and self.agent.project.skip_steps:
@@ -68,7 +68,7 @@ class AgentConvo:
 
             if self.agent.project.skip_until_dev_step and str(
                     development_step.id) == self.agent.project.skip_until_dev_step:
-                self.agent.project.skip_steps = False
+                self.agent.project.finish_loading()
                 delete_all_subsequent_steps(self.agent.project)
 
                 if 'delete_unrelated_steps' in self.agent.project.args and self.agent.project.args[
@@ -82,7 +82,6 @@ class AgentConvo:
         else:
             # if we don't, get the response from LLM
             try:
-                self.agent.project.skip_steps = False  # todo this is quick fix for flag that shows if we fully loaded project, should be implemented properly
                 self.replace_files()
                 response = create_gpt_chat_completion(self.messages, self.high_level_step, self.agent.project,
                                                       function_calls=function_calls)
@@ -192,7 +191,8 @@ class AgentConvo:
                 for file in files:
                     msg['content'] = self.replace_file_content(msg['content'], f"{file['path']}/{file['name']}", file['content'])
 
-    def escape_specials(self, s):
+    @staticmethod
+    def escape_specials(s):
         s = s.replace("\\", "\\\\")
 
         # List of sequences to preserve

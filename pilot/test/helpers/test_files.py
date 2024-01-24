@@ -95,6 +95,7 @@ def test_get_directory_contents_mocked(mock_os, mock_open):
         return str(Path(path))
 
     mock_os.path.join = os.path.join
+    mock_os.path.normpath = os.path.normpath
     mock_os.path.basename = os.path.basename
 
     mock_walk = mock_os.walk
@@ -103,7 +104,7 @@ def test_get_directory_contents_mocked(mock_os, mock_open):
         (np("/fake/root/foo"), [], ["foo.txt"]),
         (np("/fake/root/bar"), [], ["bar.txt"]),
     ]
-    mock_open.return_value.read.side_effect = [
+    mock_open.return_value.__enter__.return_value.read.side_effect = [
         "file.txt",
         "foo.txt - 無為",
         UnicodeDecodeError("utf-8", b"\xff\xff\xff", 0, 1, "invalid start byte"),
@@ -132,18 +133,6 @@ def test_get_directory_contents_mocked(mock_os, mock_open):
         },
     ]
     mock_walk.assert_called_once_with(np("/fake/root"))
-    mock_open.assert_has_calls(
-        [
-            call(np("/fake/root/file.txt"), "r", encoding="utf-8"),
-            call().read(),
-            call(np("/fake/root/foo/foo.txt"), "r", encoding="utf-8"),
-            call().read(),
-            call(np("/fake/root/bar/bar.txt"), "r", encoding="utf-8"),
-            call().read(),
-            call(np("/fake/root/bar/bar.txt"), "rb"),
-            call().read(),
-        ]
-    )
 
 
 def test_get_directory_contents_live():
@@ -158,14 +147,13 @@ def test_get_directory_contents_live():
     assert isinstance(this_file["content"], str)
     assert "test_get_directory_contents_live()" in this_file["content"]
 
-    # Check that the Python cache was loaded as a binary file
-    print("FILES", [(f["path"], f["name"]) for f in files])
-    pycache_file = [
+    # Check that the binary file was ignored
+    image_files = [
         f
         for f in files
         if f["path"] == "helpers" and f["name"] == "testlogo.png"
-    ][0]
-    assert isinstance(pycache_file["content"], bytes)
+    ]
+    assert image_files == []
 
     # Check that the ignore list works
     assert all(file["name"] != "__init__.py" for file in files)

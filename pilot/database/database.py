@@ -3,13 +3,14 @@ from utils.style import color_yellow, color_red
 from peewee import DoesNotExist, IntegrityError
 from functools import reduce
 import operator
-import psycopg2
-from psycopg2.extensions import quote_ident
+from database.config import DB_NAME, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_TYPE
+if DATABASE_TYPE == "postgres":
+    import psycopg2
+    from psycopg2.extensions import quote_ident
 
 import os
 from const.common import PROMPT_DATA_TO_IGNORE, STEPS
 from logger.logger import logger
-from database.config import DB_NAME, DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DATABASE_TYPE
 from database.models.components.base_models import database
 from database.models.user import User
 from database.models.app import App
@@ -193,7 +194,7 @@ def get_app(app_id, error_if_not_found=True):
         return app
     except DoesNotExist:
         if error_if_not_found:
-            raise ValueError(f"No app with id: {app_id}")
+            raise ValueError(f"No app with id: {app_id}; use python main.py --get-created-apps-with-steps to see created apps")
         return None
 
 
@@ -300,6 +301,9 @@ def save_development_step(project, prompt_path, prompt_data, messages, llm_respo
 def get_saved_development_step(project):
     development_step = get_db_model_from_hash_id(DevelopmentSteps, project.args['app_id'],
                                                  project.checkpoints['last_development_step'], project.current_step)
+
+    if development_step is None and project.skip_steps:
+        project.finish_loading()
     return development_step
 
 
@@ -332,6 +336,9 @@ def get_saved_command_run(project, command):
     # }
     command_run = get_db_model_from_hash_id(CommandRuns, project.args['app_id'],
                                             project.checkpoints['last_command_run'], project.current_step)
+
+    if command_run is None and project.skip_steps:
+        project.finish_loading()
     return command_run
 
 
@@ -361,6 +368,9 @@ def get_saved_user_input(project, query):
     # }
     user_input = get_db_model_from_hash_id(UserInputs, project.args['app_id'], project.checkpoints['last_user_input'],
                                            project.current_step)
+
+    if user_input is None and project.skip_steps:
+        project.finish_loading()
     return user_input
 
 

@@ -20,45 +20,74 @@ from utils.questionary import styled_text
 
 from .telemetry import telemetry
 
+tokenizer = tiktoken.get_encoding("cl100k_base")
+
+
 def get_tokens_in_messages(messages: List[str]) -> int:
-    tokenizer = tiktoken.get_encoding("cl100k_base")  # GPT-4 tokenizer
     tokenized_messages = [tokenizer.encode(message['content']) for message in messages]
     return sum(len(tokens) for tokens in tokenized_messages)
 
 
+# TODO: not used anywhere
 def num_tokens_from_functions(functions):
     """Return the number of tokens used by a list of functions."""
-    encoding = tiktoken.get_encoding("cl100k_base")
-
     num_tokens = 0
     for function in functions:
-        function_tokens = len(encoding.encode(function['name']))
-        function_tokens += len(encoding.encode(function['description']))
+        function_tokens = len(tokenizer.encode(function['name']))
+        function_tokens += len(tokenizer.encode(function['description']))
 
         if 'parameters' in function:
             parameters = function['parameters']
             if 'properties' in parameters:
                 for propertiesKey in parameters['properties']:
-                    function_tokens += len(encoding.encode(propertiesKey))
+                    function_tokens += len(tokenizer.encode(propertiesKey))
                     v = parameters['properties'][propertiesKey]
                     for field in v:
                         if field == 'type':
                             function_tokens += 2
-                            function_tokens += len(encoding.encode(v['type']))
+                            function_tokens += len(tokenizer.encode(v['type']))
                         elif field == 'description':
                             function_tokens += 2
-                            function_tokens += len(encoding.encode(v['description']))
+                            function_tokens += len(tokenizer.encode(v['description']))
                         elif field == 'enum':
                             function_tokens -= 3
                             for o in v['enum']:
                                 function_tokens += 3
-                                function_tokens += len(encoding.encode(o))
+                                function_tokens += len(tokenizer.encode(o))
                 function_tokens += 11
 
         num_tokens += function_tokens
 
     num_tokens += 12
     return num_tokens
+
+
+def test_api_access(project) -> bool:
+    """
+    Test the API access by sending a request to the API.
+
+    :returns: True if the request was successful, False otherwise.
+    """
+    messages = [
+        {
+            "role": "user",
+            "content": "This is a connection test. If you can see this, please respond only with 'START' and nothing else."
+        }
+    ]
+
+    endpoint = os.getenv('ENDPOINT')
+    model = os.getenv('MODEL_NAME', 'gpt-4')
+    try:
+        response = create_gpt_chat_completion(messages, 'project_description', project)
+        if response is None or response == {}:
+            print(color_red("Error connecting to the API. Please check your API key/endpoint and try again."))
+            logger.error(f"The request to {endpoint} model {model} API failed.")
+            return False
+        return True
+    except Exception as err:
+        print(color_red("Error connecting to the API. Please check your API key/endpoint and try again."))
+        logger.error(f"The request to {endpoint} model {model} API failed: {err}", exc_info=err)
+        return False
 
 
 def create_gpt_chat_completion(messages: List[dict], req_type, project,
@@ -237,7 +266,7 @@ def retry_on_exception(func):
                 logger.error(f'There was a problem with request to openai API: {err_str}')
 
                 project = args[2]
-                print('yes/no', type='button')
+                print('yes/no', type='buttons-only')
                 user_message = styled_text(
                     project,
                     'Do you want to try make the same request again? If yes, just press ENTER. Otherwise, type "no".',
@@ -305,10 +334,6 @@ def stream_gpt_completion(data, req_type, project):
     model = os.getenv('MODEL_NAME', 'gpt-4')
     endpoint = os.getenv('ENDPOINT')
 
-    # This will be set many times but we don't care, as there are no side-effects to it.
-    telemetry.set("model", model)
-    telemetry.inc("num_llm_requests")
-
     logger.info(f'> Request model: {model}')
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug('\n'.join([f"{message['role']}: {message['content']}" for message in data['messages']]))
@@ -340,6 +365,10 @@ def stream_gpt_completion(data, req_type, project):
         }
         data['model'] = model
 
+    telemetry.set("model", model)
+    token_count = get_tokens_in_messages(data['messages'])
+    request_start_time = time.time()
+
     response = requests.post(
         endpoint_url,
         headers=headers,
@@ -350,6 +379,7 @@ def stream_gpt_completion(data, req_type, project):
     if response.status_code != 200:
         project.dot_pilot_gpt.log_chat_completion(endpoint, model, req_type, data['messages'], response.text)
         logger.info(f'problem with request (status {response.status_code}): {response.text}')
+        telemetry.record_llm_request(token_count, time.time() - request_start_time, is_error=True)
         raise Exception(f"API responded with status code: {response.status_code}. Response text: {response.text}")
 
     # function_calls = {'name': '', 'arguments': ''}
@@ -374,6 +404,7 @@ def stream_gpt_completion(data, req_type, project):
 
                 if 'error' in json_line:
                     logger.error(f'Error in LLM response: {json_line}')
+                    telemetry.record_llm_request(token_count, time.time() - request_start_time, is_error=True)
                     raise ValueError(f'Error in LLM response: {json_line["error"]["message"]}')
 
                 choice = json_line['choices'][0]
@@ -406,8 +437,11 @@ def stream_gpt_completion(data, req_type, project):
                     # If you detect a natural breakpoint (e.g., line break or end of a response object), print & count:
                     if buffer.endswith('\n'):
                         if expecting_json and not received_json:
-                            received_json = assert_json_response(buffer, lines_printed > 2)
-
+                            try:
+                                received_json = assert_json_response(buffer, lines_printed > 2)
+                            except:
+                                telemetry.record_llm_request(token_count, time.time() - request_start_time, is_error=True)
+                                raise
                         # or some other condition that denotes a breakpoint
                         lines_printed += count_lines_based_on_width(buffer, terminal_width)
                         buffer = ""  # reset the buffer
@@ -416,6 +450,12 @@ def stream_gpt_completion(data, req_type, project):
                     print(content, type='stream', end='', flush=True)
 
     print('\n', type='stream')
+
+    telemetry.record_llm_request(
+        token_count + len(tokenizer.encode(gpt_response)),
+        time.time() - request_start_time,
+        is_error=False
+    )
 
     # if function_calls['arguments'] != '':
     #     logger.info(f'Response via function call: {function_calls["arguments"]}')

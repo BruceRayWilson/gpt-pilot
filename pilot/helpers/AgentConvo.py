@@ -37,15 +37,16 @@ class AgentConvo:
                     system_message['content'])
         self.messages.append(system_message)
 
-    def send_message(self, prompt_path=None, prompt_data=None, function_calls: FunctionCallSet = None, should_log_message=True):
+    def send_message(self, prompt_path: str = None, prompt_data: dict = None, function_calls: FunctionCallSet = None, should_log_message: bool = True):
         """
         Sends a message in the conversation.
 
         Args:
-            prompt_path: The path to a prompt.
-            prompt_data: Data associated with the prompt.
-            function_calls: Optional function calls to be included in the message.
-            should_log_message: Flag if final response should be logged.
+            prompt_path (str, optional): The path to a prompt as a string.
+            prompt_data (dict, optional): A dictionary containing data associated with the prompt.
+            function_calls (FunctionCallSet, optional): Optional function calls to be included in the message.
+            should_log_message (bool): Flag indicating if the final response should be logged.
+
         Returns:
             The response from the agent.
         """

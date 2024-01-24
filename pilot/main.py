@@ -36,6 +36,9 @@ def init():
 
 
 if __name__ == "__main__":
+    import sys
+    print(sys.path)
+
     ask_feedback = True
     project = None
     run_exit_fn = True

@@ -141,7 +141,7 @@ class Loader:
 
         :return: path to the desired location config directory
 
-        See the clas docstring for details on how the config directory is
+        See the class docstring for details on how the config directory is
         determined.
         """
         posix_app_name = cls.APP_NAME.replace(" ", "-").lower()

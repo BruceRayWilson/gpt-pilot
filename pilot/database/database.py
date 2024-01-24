@@ -503,6 +503,7 @@ def tables_exist():
         for table in TABLES:
             try:
                 database.get_tables().index(table._meta.table_name)
+                print("table: {table._meta.table_name}")
             except ValueError:
                 return False
     else:
